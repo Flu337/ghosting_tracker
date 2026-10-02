@@ -978,6 +978,7 @@ class UserDetailScreen extends StatelessWidget {
   }
 
   // Виджет для вывода истории обещаний этого пользователя
+  // Виджет для вывода истории обещаний этого пользователя
   Widget _buildHistoryList() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -985,10 +986,7 @@ class UserDetailScreen extends StatelessWidget {
           .doc(lobbyCode)
           .collection('promises')
           .where('targetUserId', isEqualTo: user['id'])
-          .where(
-            'status',
-            whereIn: ['kept', 'broken'],
-          ) // Берем только завершенные
+          .where('status', whereIn: ['kept', 'broken'])
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
@@ -1029,24 +1027,15 @@ class UserDetailScreen extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Icon(
-                    isKept
-                        ? Icons.task_alt
-                        : Icons.cancel, // Современная галочка и крестик
-                    color: isKept ? AppTheme.success : AppTheme.danger,
-                    size: 24,
-                  ),
+                  StatusBadge(isKept: isKept),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       p['text'],
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 14,
-                        fontWeight: isKept
-                            ? FontWeight.w500
-                            : FontWeight.normal,
-                        color: AppTheme
-                            .textMain, // Оставили чистый текст без зачеркивания
+                        fontWeight: FontWeight.w500,
+                        color: AppTheme.textMain, // Никаких зачеркиваний
                       ),
                     ),
                   ),
@@ -1058,4 +1047,61 @@ class UserDetailScreen extends StatelessWidget {
       },
     );
   }
+}
+
+// ================= ВЕКТОРНЫЕ ИКОНКИ (SVG-ЭКВИВАЛЕНТ) =================
+class StatusBadge extends StatelessWidget {
+  final bool isKept;
+  const StatusBadge({super.key, required this.isKept});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 24,
+      height: 24,
+      decoration: BoxDecoration(
+        color: isKept ? AppTheme.success : AppTheme.danger,
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: CustomPaint(
+          size: const Size(12, 12),
+          painter: _BadgePainter(isKept: isKept),
+        ),
+      ),
+    );
+  }
+}
+
+class _BadgePainter extends CustomPainter {
+  final bool isKept;
+  _BadgePainter({required this.isKept});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final path = Path();
+    if (isKept) {
+      // Векторная галочка
+      path.moveTo(size.width * 0.15, size.height * 0.55);
+      path.lineTo(size.width * 0.42, size.height * 0.82);
+      path.lineTo(size.width * 0.88, size.height * 0.22);
+    } else {
+      // Векторный крестик
+      path.moveTo(size.width * 0.2, size.height * 0.2);
+      path.lineTo(size.width * 0.8, size.height * 0.8);
+      path.moveTo(size.width * 0.8, size.height * 0.2);
+      path.lineTo(size.width * 0.2, size.height * 0.8);
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
