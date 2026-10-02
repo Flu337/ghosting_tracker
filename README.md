@@ -1,17 +1,112 @@
-# flutter_application_1
+# Ghosting Tracker
 
-A new Flutter project.
+Минималистичное веб-приложение для фиксации обещаний внутри компании друзей и отслеживания индекса надежности в реальном времени.
 
-## Getting Started
+Платформа исключает возможность самосуда: вынесение вердикта («Сдержал» или «Слился») доступно исключительно другим участникам лобби.
 
-This project is a starting point for a Flutter application.
+**Рабочая версия:** [pr23-ebf71.web.app](https://pr23-ebf71.web.app/)
 
-A few resources to get you started if this is your first Flutter project:
+---
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Основной функционал
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- **Подключение по коду:** Создание комнат с уникальным 6-значным кодом и мгновенный вход без обязательной регистрации по почте.
+- **Институт трибунала:**
+  - Обещание назначается на конкретного участника.
+  - Закрывать статус задачи могут только остальные члены группы (кнопки скрыты для автора обещания).
+- **Динамический рейтинг доверия:**
+  - Базовое значение: 100%.
+  - Выполненное обещание: +5% (максимум 100%).
+  - Срыв обязательства: -15% со штрафом в счетчик нарушений.
+- **История и аналитика:**
+  - Индивидуальный экран участника с графиком динамики индекса.
+  - Счетчик общего количества сливов.
+  - Архив закрытых обещаний с векторными статусами («Выполнено» / «Слито»).
+- **Менеджер сессий:**
+  - Сохранение активных лобби в локальном хранилище браузера.
+  - Быстрый повторный вход со стартового экрана.
+  - Гибкий выход: временный (с сохранением истории в лобби) либо окончательный (с полным удалением профиля из базы данных).
+
+---
+
+## Стек технологий
+
+- **Фреймворк:** Flutter 3.x (Web / Responsive UI)
+- **База данных:** Firebase Cloud Firestore (Realtime Data Streams)
+- **Хостинг:** Firebase Hosting
+- **Графика и чарты:** `fl_chart`, Flutter Canvas API (`CustomPainter` для векторных бейджей)
+- **Шрифты и дизайн:** Google Fonts (`Inter`), монохромная дизайн-система (Linear / Vercel стиль)
+- **Локальное хранилище:** `shared_preferences`
+
+---
+
+## Архитектура базы данных
+
+```text
+lobbies (collection)
+  └── {lobbyCode} (document)
+        ├── createdAt: timestamp
+        ├── users: [
+        │     {
+        │       id: string,
+        │       name: string,
+        │       score: number,
+        │       fails: number,
+        │       history: number[]
+        │     }
+        │   ]
+        │
+        └── promises (sub-collection)
+              └── {promiseId} (document)
+                    ├── text: string
+                    ├── targetUserId: string
+                    ├── status: "pending" | "kept" | "broken"
+                    └── createdAt: timestamp
+```
+
+---
+
+## Локальная разработка
+
+### Требования к окружению
+
+- Установленный Flutter SDK (версия 3.19 и новее)
+- Node.js и глобально установленный Firebase CLI (`npm install -g firebase-tools`)
+- Браузер Google Chrome или Microsoft Edge
+
+### Установка и запуск
+
+1. Клонируйте репозиторий:
+```bash
+git clone https://github.com/<your-username>/ghosting_tracker.git
+cd ghosting_tracker
+```
+
+2. Загрузите зависимости проекта:
+```bash
+flutter pub get
+```
+
+3. Сконфигурируйте подключение к Firebase:
+```bash
+dart pub global run flutterfire_cli:flutterfire configure
+```
+
+4. Запустите приложение в веб-режиме:
+```bash
+flutter run -d chrome
+```
+
+---
+
+## Сборка и деплой
+
+Сборка оптимизированного веб-бандла:
+```bash
+flutter build web --release
+```
+
+Публикация на Firebase Hosting:
+```bash
+firebase deploy --only hosting
+```
