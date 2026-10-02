@@ -7,26 +7,22 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// Обязательно добавляем этот импорт
 import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Передаем настройки текущей платформы
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
   runApp(const GhostingApp());
 }
 
-// ================= THEME (Premium Minimalist) =================
+// ================= THEME =================
 class AppTheme {
   static const Color background = Color(0xFFFFFFFF);
   static const Color surface = Color(0xFFFFFFFF);
   static const Color border = Color(0xFFE5E7EB);
   static const Color textMain = Color(0xFF111827);
   static const Color textMuted = Color(0xFF6B7280);
-  static const Color accent = Color(0xFF000000); // Строгий черный акцент
+  static const Color accent = Color(0xFF000000);
   static const Color danger = Color(0xFFEF4444);
   static const Color success = Color(0xFF10B981);
 
@@ -80,7 +76,6 @@ class AppTheme {
   }
 }
 
-// ================= MAIN APP WIDGET =================
 class GhostingApp extends StatelessWidget {
   const GhostingApp({super.key});
 
@@ -105,30 +100,67 @@ class AuthScreen extends StatefulWidget {
 
 class _AuthScreenState extends State<AuthScreen> {
   final TextEditingController _nameController = TextEditingController();
+  bool _isLoading = true;
+  List<String> _recentLobbies = [];
+  String? _uid;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkExistingSession();
+  }
+
+  Future<void> _checkExistingSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    final name = prefs.getString('name');
+    final uid = prefs.getString('uid');
+    final recentLobbies = prefs.getStringList('recentLobbies') ?? [];
+
+    if (!mounted) return;
+
+    if (name != null) _nameController.text = name;
+    _uid = uid;
+    _recentLobbies = recentLobbies;
+
+    setState(() => _isLoading = false);
+  }
 
   Future<void> _saveNameAndProceed() async {
     final name = _nameController.text.trim();
     if (name.isEmpty) return;
 
     final prefs = await SharedPreferences.getInstance();
-    final userId =
-        prefs.getString('uid') ??
-        DateTime.now().millisecondsSinceEpoch.toString();
+    final userId = _uid ?? DateTime.now().millisecondsSinceEpoch.toString();
     await prefs.setString('uid', userId);
     await prefs.setString('name', name);
 
-    if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => LobbySelectionScreen(userId: userId, userName: name),
-        ),
-      );
-    }
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LobbySelectionScreen(userId: userId, userName: name),
+      ),
+    );
+  }
+
+  void _joinRecentLobby(String code) {
+    if (_uid == null || _nameController.text.trim().isEmpty) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DashboardScreen(lobbyCode: code, currentUserId: _uid!),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator(color: AppTheme.accent)),
+      );
+    }
+
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -158,6 +190,37 @@ class _AuthScreenState extends State<AuthScreen> {
                 onPressed: _saveNameAndProceed,
                 child: const Text('Продолжить'),
               ),
+              if (_recentLobbies.isNotEmpty) ...[
+                const SizedBox(height: 48),
+                const Text(
+                  'ТЕКУЩИЕ СЕССИИ',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.textMuted,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ..._recentLobbies.map(
+                  (code) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: OutlinedButton(
+                      onPressed: () => _joinRecentLobby(code),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.all(16),
+                        side: const BorderSide(color: AppTheme.border),
+                      ),
+                      child: Text(
+                        'Лобби: $code',
+                        style: const TextStyle(
+                          color: AppTheme.textMain,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -234,18 +297,24 @@ class _LobbySelectionScreenState extends State<LobbySelectionScreen> {
         await docRef.update({'users': users});
       }
 
-      if (!mounted) return; // <--- ДОБАВЬ ЭТУ СТРОКУ
-
+      if (!mounted) return;
       _goToDashboard(code);
     } else {
-      if (!mounted) return; // <--- И ЭТУ СТРОКУ
-
+      if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Лобби не найдено')));
     }
   }
 
-  void _goToDashboard(String code) {
+  Future<void> _goToDashboard(String code) async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String> recent = prefs.getStringList('recentLobbies') ?? [];
+    if (!recent.contains(code)) {
+      recent.add(code);
+      await prefs.setStringList('recentLobbies', recent);
+    }
+
+    if (!mounted) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -313,6 +382,66 @@ class DashboardScreen extends StatelessWidget {
     required this.currentUserId,
   });
 
+  void _showExitOptions(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Выход из лобби'),
+          content: const Text('Как вы хотите выйти?'),
+          actions: [
+            TextButton(
+              child: const Text(
+                'Выйти с сохранением',
+                style: TextStyle(color: AppTheme.textMain),
+              ),
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AuthScreen()),
+                );
+              },
+            ),
+            TextButton(
+              child: const Text(
+                'Покинуть навсегда',
+                style: TextStyle(color: AppTheme.danger),
+              ),
+              onPressed: () async {
+                Navigator.of(context).pop();
+
+                // Удаляем лобби из недавних
+                final prefs = await SharedPreferences.getInstance();
+                List<String> recent =
+                    prefs.getStringList('recentLobbies') ?? [];
+                recent.remove(lobbyCode);
+                await prefs.setStringList('recentLobbies', recent);
+
+                // Удаляем пользователя из лобби в БД
+                final docRef = FirebaseFirestore.instance
+                    .collection('lobbies')
+                    .doc(lobbyCode);
+                final doc = await docRef.get();
+                if (doc.exists) {
+                  List users = doc.data()?['users'] ?? [];
+                  users.removeWhere((u) => u['id'] == currentUserId);
+                  await docRef.update({'users': users});
+                }
+
+                if (!context.mounted) return;
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AuthScreen()),
+                );
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -324,10 +453,7 @@ class DashboardScreen extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.exit_to_app),
-            onPressed: () => Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => const AuthScreen()),
-            ),
+            onPressed: () => _showExitOptions(context),
           ),
         ],
       ),
@@ -345,7 +471,6 @@ class DashboardScreen extends StatelessWidget {
 
           var data = snapshot.data!.data() as Map<String, dynamic>;
           List users = List.from(data['users'] ?? []);
-          // Сортируем: сначала с низким рейтингом (позор)
           users.sort(
             (a, b) => (a['score'] as int).compareTo(b['score'] as int),
           );
@@ -406,7 +531,9 @@ class DashboardScreen extends StatelessWidget {
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => UserDetailScreen(user: user)),
+        MaterialPageRoute(
+          builder: (_) => UserDetailScreen(user: user, lobbyCode: lobbyCode),
+        ),
       ),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
@@ -475,11 +602,19 @@ class DashboardScreen extends StatelessWidget {
           .doc(lobbyCode)
           .collection('promises')
           .where('status', isEqualTo: 'pending')
-          .orderBy('createdAt', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const SizedBox();
-        final docs = snapshot.data!.docs;
+
+        var docs = snapshot.data!.docs.toList();
+        docs.sort((a, b) {
+          final aData = a.data() as Map<String, dynamic>;
+          final bData = b.data() as Map<String, dynamic>;
+          final aTime = aData['createdAt'] as Timestamp?;
+          final bTime = bData['createdAt'] as Timestamp?;
+          if (aTime == null || bTime == null) return 0;
+          return bTime.compareTo(aTime);
+        });
 
         if (docs.isEmpty) {
           return const Padding(
@@ -498,6 +633,7 @@ class DashboardScreen extends StatelessWidget {
               (u) => u['id'] == p['targetUserId'],
               orElse: () => {'name': 'Неизвестный'},
             );
+            bool isMyPromise = p['targetUserId'] == currentUserId;
 
             return Container(
               margin: const EdgeInsets.only(bottom: 12),
@@ -526,41 +662,52 @@ class DashboardScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.danger,
-                            side: const BorderSide(color: AppTheme.border),
-                          ),
-                          onPressed: () => _resolvePromise(
-                            doc.id,
-                            targetUser['id'],
-                            false,
-                            users,
-                          ),
-                          child: const Text('Слился'),
-                        ),
+
+                  if (isMyPromise)
+                    const Text(
+                      'Ожидает решения от других участников...',
+                      style: TextStyle(
+                        color: AppTheme.textMuted,
+                        fontSize: 13,
+                        fontStyle: FontStyle.italic,
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.success,
-                            side: const BorderSide(color: AppTheme.border),
+                    )
+                  else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.danger,
+                              side: const BorderSide(color: AppTheme.border),
+                            ),
+                            onPressed: () => _resolvePromise(
+                              doc.id,
+                              targetUser['id'],
+                              false,
+                              users,
+                            ),
+                            child: const Text('Слился'),
                           ),
-                          onPressed: () => _resolvePromise(
-                            doc.id,
-                            targetUser['id'],
-                            true,
-                            users,
-                          ),
-                          child: const Text('Сдержал'),
                         ),
-                      ),
-                    ],
-                  ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.success,
+                              side: const BorderSide(color: AppTheme.border),
+                            ),
+                            onPressed: () => _resolvePromise(
+                              doc.id,
+                              targetUser['id'],
+                              true,
+                              users,
+                            ),
+                            child: const Text('Сдержал'),
+                          ),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             );
@@ -571,7 +718,20 @@ class DashboardScreen extends StatelessWidget {
   }
 
   void _showAddPromiseModal(BuildContext context, List users) {
-    String selectedUserId = users.first['id'];
+    final otherUsers = users.where((u) => u['id'] != currentUserId).toList();
+
+    if (otherUsers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'В лобби пока нет других участников. Пригласите друзей!',
+          ),
+        ),
+      );
+      return;
+    }
+
+    String selectedUserId = otherUsers.first['id'];
     final TextEditingController textController = TextEditingController();
 
     showModalBottomSheet(
@@ -604,7 +764,7 @@ class DashboardScreen extends StatelessWidget {
                     decoration: const InputDecoration(
                       labelText: 'Кто обещает?',
                     ),
-                    items: users
+                    items: otherUsers
                         .map(
                           (u) => DropdownMenuItem<String>(
                             value: u['id'],
@@ -656,7 +816,6 @@ class DashboardScreen extends StatelessWidget {
     bool kept,
     List users,
   ) async {
-    // 1. Обновляем статус обещания
     await FirebaseFirestore.instance
         .collection('lobbies')
         .doc(lobbyCode)
@@ -664,7 +823,6 @@ class DashboardScreen extends StatelessWidget {
         .doc(promiseId)
         .update({'status': kept ? 'kept' : 'broken'});
 
-    // 2. Ищем пользователя и меняем его стату
     var userIndex = users.indexWhere((u) => u['id'] == userId);
     if (userIndex == -1) return;
 
@@ -694,7 +852,13 @@ class DashboardScreen extends StatelessWidget {
 // ================= 4. USER GRAPH DETAIL SCREEN =================
 class UserDetailScreen extends StatelessWidget {
   final Map user;
-  const UserDetailScreen({super.key, required this.user});
+  final String lobbyCode;
+
+  const UserDetailScreen({
+    super.key,
+    required this.user,
+    required this.lobbyCode,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -706,7 +870,8 @@ class UserDetailScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: Text(user['name'])),
-      body: Padding(
+      body: SingleChildScrollView(
+        // Добавили скролл, так как добавится история
         padding: const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -770,43 +935,127 @@ class UserDetailScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: AppTheme.border),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Нарушено',
-                          style: TextStyle(
-                            color: AppTheme.textMuted,
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${user['fails']}',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.danger,
-                          ),
-                        ),
-                      ],
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border.all(color: AppTheme.border),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Нарушено',
+                    style: TextStyle(color: AppTheme.textMuted, fontSize: 13),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${user['fails']}',
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.danger,
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+            const SizedBox(height: 48),
+            const Text(
+              'ИСТОРИЯ ОБЕЩАНИЙ',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textMuted,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildHistoryList(),
           ],
         ),
       ),
+    );
+  }
+
+  // Виджет для вывода истории обещаний этого пользователя
+  Widget _buildHistoryList() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('lobbies')
+          .doc(lobbyCode)
+          .collection('promises')
+          .where('targetUserId', isEqualTo: user['id'])
+          .where(
+            'status',
+            whereIn: ['kept', 'broken'],
+          ) // Берем только завершенные
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(
+            child: CircularProgressIndicator(color: AppTheme.accent),
+          );
+        }
+
+        var docs = snapshot.data!.docs.toList();
+        docs.sort((a, b) {
+          final aData = a.data() as Map<String, dynamic>;
+          final bData = b.data() as Map<String, dynamic>;
+          final aTime = aData['createdAt'] as Timestamp?;
+          final bTime = bData['createdAt'] as Timestamp?;
+          if (aTime == null || bTime == null) return 0;
+          return bTime.compareTo(aTime);
+        });
+
+        if (docs.isEmpty) {
+          return const Text(
+            'Пока нет завершенных обещаний.',
+            style: TextStyle(color: AppTheme.textMuted),
+          );
+        }
+
+        return Column(
+          children: docs.map((doc) {
+            var p = doc.data() as Map<String, dynamic>;
+            bool isKept = p['status'] == 'kept';
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFAFAFA),
+                border: Border.all(color: AppTheme.border),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    isKept
+                        ? Icons.task_alt
+                        : Icons.cancel, // Современная галочка и крестик
+                    color: isKept ? AppTheme.success : AppTheme.danger,
+                    size: 24,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      p['text'],
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: isKept
+                            ? FontWeight.w500
+                            : FontWeight.normal,
+                        color: AppTheme
+                            .textMain, // Оставили чистый текст без зачеркивания
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        );
+      },
     );
   }
 }
